@@ -1,2 +1,7 @@
 # IA_PLANNER_TESIS_UNIR
-Prototipo de sistema de planificación de viajes basado en IA, desarrollado como Trabajo Fin de Estudios (TFE). Incluye una API REST, generación y resumen de reseñas, recomendaciones turísticas y un frontend de interacción
+TrueTrip Colombia
+Plataforma de Recomendación Turística con IA
+
+TrueTrip Colombia es un prototipo funcional de una plataforma de recomendación turística que utiliza análisis de reseñas de viajeros e inteligencia artificial generativa para construir itinerarios turísticos personalizados por región en Colombia.
+
+El sistema procesa reseñas textuales, sintetiza percepciones relevantes y genera itinerarios factibles integrando visualización interactiva y envío automático por correo electrónico. El proyecto fue desarrollado como parte de un trabajo de grado y está orientado a la validación técnica y metodológica de un flujo extremo a extremo.
