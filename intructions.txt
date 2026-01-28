@@ -14,3 +14,4 @@ Plataforma de recomendación turística inteligente basada en IA generativa y an
 ```bash
 cd backend
 uvicorn app.main:app --reload
+
