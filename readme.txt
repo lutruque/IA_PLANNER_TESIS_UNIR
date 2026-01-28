@@ -1,0 +1,16 @@
+# TrueTrip Colombia 🌎✈️
+
+Plataforma de recomendación turística inteligente basada en IA generativa y análisis de reseñas.
+
+## Arquitectura
+- Frontend: Streamlit
+- Backend: FastAPI
+- Base de datos: PostgreSQL
+- IA: Modelos de lenguaje para generación de itinerarios
+
+## Ejecución
+
+### Backend
+```bash
+cd backend
+uvicorn app.main:app --reload
