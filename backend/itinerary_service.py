@@ -1,12 +1,12 @@
 import time
-from typing import Optional, List
+from typing import Optional
 
 from app.schemas import PlanRequest
 from app.db.db_utils_1 import (
     get_attractions_for_itinerary,
     get_top_hotels_by_city,
 )
-from app.services.llm_service import summarize_with_llm
+from app.services.llm_service import summarize_with_llm, llm
 from app.services.metrics import print_metrics
 from app.utils.text_utils import clean_one_line
 
@@ -22,6 +22,42 @@ SPANISH_SLOT_LABEL = {
 
 
 # ======================================================
+# FUNCIÓN AUXILIAR — ENRIQUECER DESCRIPCIÓN CON IA
+# ======================================================
+def enrich_description_with_llm(
+    city: str,
+    activity: str,
+    base_description: str,
+    traveler_type: Optional[str] = None,
+) -> str:
+    if not llm.available() or not base_description:
+        return base_description
+
+    system = (
+        "Eres un asistente turístico. Reescribe descripciones de lugares "
+        "de forma clara, atractiva y natural, sin inventar información."
+    )
+
+    user = (
+        f"Ciudad: {city}\n"
+        f"Lugar: {activity}\n"
+        f"Tipo de viajero: {traveler_type or 'general'}\n\n"
+        f"Descripción original:\n{base_description}\n\n"
+        "Tarea: reformula el texto en 1–2 frases, manteniendo el significado, "
+        "mejorando fluidez y atractivo turístico. No agregues datos nuevos."
+    )
+
+    out = llm.generate_text(
+        system=system,
+        user=user,
+        temperature=0.3,
+        max_tokens=120,
+    )
+
+    return clean_one_line(out) if out else base_description
+
+
+# ======================================================
 # FUNCIÓN PRINCIPAL — CONSTRUCCIÓN DEL ITINERARIO
 # ======================================================
 def build_itinerary(req: PlanRequest) -> dict:
@@ -29,11 +65,6 @@ def build_itinerary(req: PlanRequest) -> dict:
     Construye un itinerario turístico determinístico a partir de
     atracciones almacenadas en la base de datos y complementa el
     resultado con resúmenes generados por IA.
-
-    Métricas registradas:
-    - Latencia de generación de resúmenes
-    - Longitud de los textos generados
-    - Uso de fallback nocturno
     """
 
     city = req.city_base
@@ -47,16 +78,12 @@ def build_itinerary(req: PlanRequest) -> dict:
 
     morning_list = slots["morning"] or slots["any"]
     afternoon_list = slots["afternoon"] or slots["any"]
-    evening_list = slots["evening"]  # puede ser vacía
+    evening_list = slots["evening"]
 
     itinerary_days = []
 
-    # índices circulares por franja
     m_idx = a_idx = e_idx = 0
-
-    # evitar repetir atracciones
     used_global = set()
-
     fallback_night_count = 0
 
     # -----------------------------------
@@ -79,17 +106,15 @@ def build_itinerary(req: PlanRequest) -> dict:
     # Construcción día a día
     # -----------------------------------
     for day in range(days):
-        # MAÑANA
+
         m_act, m_idx = choose_for_slot(morning_list, m_idx, used_global)
         if m_act:
             used_global.add(m_act.get("id_atraccion"))
 
-        # TARDE
         a_act, a_idx = choose_for_slot(afternoon_list, a_idx, used_global)
         if a_act:
             used_global.add(a_act.get("id_atraccion"))
 
-        # NOCHE
         if evening_list:
             e_act, e_idx = choose_for_slot(evening_list, e_idx, used_global)
             if e_act:
@@ -107,9 +132,19 @@ def build_itinerary(req: PlanRequest) -> dict:
                     "description": None,
                     "address": None,
                 }
+
+            base_desc = act.get("descripcion_atraccion")
+
+            enriched_desc = enrich_description_with_llm(
+                city=city,
+                activity=act.get("nombre_atraccion"),
+                base_description=base_desc,
+                traveler_type=traveler_type,
+            )
+
             return {
                 "activity": act.get("nombre_atraccion"),
-                "description": act.get("descripcion_atraccion"),
+                "description": enriched_desc,
                 "address": act.get("direccion"),
             }
 
@@ -179,14 +214,14 @@ def build_itinerary(req: PlanRequest) -> dict:
 
     if hotel_suggestions:
         hotel_text = "Hoteles recomendados: " + ", ".join(
-            f"{h['name']} (⭐ {h['ranking']})" for h in hotel_suggestions
+            f"{h['name']} ({h['ranking']})" for h in hotel_suggestions
         )
     else:
         hotel_text = f"No hay hoteles con reseñas suficientes en {city}."
 
-    # ======================================================
-    # RESÚMENES CON IA + MÉTRICAS
-    # ======================================================
+    # -----------------------------------
+    # Resúmenes con IA + métricas
+    # -----------------------------------
     t0 = time.perf_counter()
     review_summary_hotels = summarize_with_llm(
         city=city,
@@ -196,17 +231,11 @@ def build_itinerary(req: PlanRequest) -> dict:
     review_summary_hotels = clean_one_line(review_summary_hotels)
     print_metrics("Resumen hoteles", t0, review_summary_hotels)
 
-    # -----------------------------------
-    # Métrica fallback nocturno
-    # -----------------------------------
     print("[METRIC] Fallback nocturno")
     print(f"  - Veces utilizado: {fallback_night_count}")
     print(f"  - Total noches: {days}")
     print(f"  - Porcentaje fallback: {(fallback_night_count / days) * 100:.1f}%")
 
-    # ======================================================
-    # RESPUESTA FINAL
-    # ======================================================
     return {
         "itinerary_id": f"it_{req.region.lower()}_{city.lower()}",
         "summary": {
